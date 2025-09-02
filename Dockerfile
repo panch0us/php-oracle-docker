@@ -1,46 +1,31 @@
 FROM php:7.4-cli
 
-# Добавляем архитектуру i386 и устанавливаем 32-битные инструменты
-RUN dpkg --add-architecture i386 && \
-    apt-get update && \
-    apt-get install -y \
-    libaio1:i386 \
-    unzip \
-    libstdc++6:i386 \
-    libgcc1:i386 \
-    gcc-multilib \
-    g++-multilib \
-    && rm -rf /var/lib/apt/lists/*
+# --- Зависимости ---
+RUN apt-get update && apt-get install -y \
+    unzip libaio1 libssl-dev libcurl4-openssl-dev libicu-dev build-essential wget && \
+    rm -rf /var/lib/apt/lists/*
 
-# Копируем локальные файлы Oracle (32-битные)
-COPY instantclient-basiclite-linux-11.2.0.4.0.zip /tmp/
-COPY instantclient-sdk-linux-11.2.0.4.0.zip /tmp/
+# --- Oracle Instant Client 64-bit ---
+COPY instantclient-basic-linux.x64-11.2.0.4.0.zip /tmp/
+COPY instantclient-sdk-linux.x64-11.2.0.4.0.zip /tmp/
 
-# Распаковываем Oracle клиент
-RUN cd /tmp && \
-    unzip -q instantclient-basiclite-linux-11.2.0.4.0.zip -d /usr/local/ && \
-    unzip -q instantclient-sdk-linux-11.2.0.4.0.zip -d /usr/local/ && \
-    rm -f /tmp/*.zip
+RUN mkdir -p /opt/oracle && cd /opt/oracle && \
+    unzip /tmp/instantclient-basic-linux.x64-11.2.0.4.0.zip && \
+    unzip /tmp/instantclient-sdk-linux.x64-11.2.0.4.0.zip && \
+    mv instantclient_* instantclient && \
+    ln -s /opt/oracle/instantclient/libclntsh.so.11.1 /opt/oracle/instantclient/libclntsh.so && \
+    echo "/opt/oracle/instantclient" > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 
-# Проверяем архитектуру библиотек
-RUN echo "Архитектура библиотек:" && \
-    file /usr/local/instantclient_11_2/libclntsh.so.11.1
+# --- Устанавливаем OCI8 через pecl (PEAR уже внутри образа) ---
+RUN echo 'instantclient,/opt/oracle/instantclient' | pecl install oci8-2.2.0 && \
+    docker-php-ext-enable oci8
 
-# Настраиваем ссылки и библиотеки
-RUN ln -s /usr/local/instantclient_11_2/libclntsh.so.11.1 /usr/local/instantclient_11_2/libclntsh.so && \
-    echo '/usr/local/instantclient_11_2' > /etc/ld.so.conf.d/oracle-instantclient.conf && \
-    ldconfig
+# --- Переменные окружения Oracle ---
+ENV ORACLE_HOME=/opt/oracle/instantclient
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
+ENV TNS_ADMIN=/opt/oracle/network/admin
 
-# Копируем заголовочные файлы из SDK
-RUN cp -r /usr/local/instantclient_11_2/sdk/include/* /usr/local/instantclient_11_2/ 2>/dev/null || true
+WORKDIR /var/www
 
-# Устанавливаем OCI8 расширение с явным указанием 32-битных флагов
-RUN export CFLAGS="-m32" && \
-    export LDFLAGS="-L/usr/local/instantclient_11_2 -m32" && \
-    docker-php-ext-configure oci8 --with-oci8=instantclient,/usr/local/instantclient_11_2 && \
-    docker-php-ext-install oci8
+CMD ["php", "-a"]
 
-# Переменные окружения
-ENV LD_LIBRARY_PATH=/usr/local/instantclient_11_2
-ENV ORACLE_HOME=/usr/local/instantclient_11_2
-ENV TNS_ADMIN=/usr/local/instantclient_11_2/network/admin
