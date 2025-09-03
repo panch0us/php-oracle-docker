@@ -27,5 +27,5 @@ ENV TNS_ADMIN=/opt/oracle/network/admin
 
 WORKDIR /var/www
 
-CMD ["php", "-a"]
+#CMD ["php", "-a"]
 
